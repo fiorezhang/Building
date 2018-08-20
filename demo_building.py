@@ -51,6 +51,13 @@ HOOK_X_R = 500
 HOOK_Y = 100
 HOOK_SPEED = BASIC_SPEED
 
+FLOOR_WIDTH = 100
+FLOOR_HEIGHT = 75
+FLOOR_CNT = 4
+FLOOR_LEVEL = WINDOW_HEIGHT - FLOOR_HEIGHT*FLOOR_CNT
+FLOOR_X = (HOOK_X_L + HOOK_X_R)//2 - (FLOOR_WIDTH-HOOK_WIDTH)//2
+FLOOR_Y = WINDOW_HEIGHT-FLOOR_HEIGHT
+
 #====颜色
 BLACK           = (  0,   0,   0)
 WHITE           = (255, 255, 255)
@@ -71,8 +78,9 @@ COLOR_BG        = WHITE
 STATE = {
     "HANG":   0, 
     "DROP":   1, 
-    "LVUP":   2,
-    "FAIL":   3, 
+    "LAND":   2,
+    "LVUP":   3,
+    "FAIL":   4, 
 }
 
 
@@ -146,6 +154,7 @@ def runGame():
     #本地变量，初始化各个元素
     clouds = initialCloud()
     crane = initialCrane()
+    floors = initialFloor()
     score = initialScore()    
     
     #MUSIC
@@ -164,6 +173,10 @@ def runGame():
         checkForQuit()
 
         #TODO
+        #状态机，hang检测按键，drop检测纵坐标，land检测刚好对齐，或者摇晃角度，lvup检测纵坐标，fail检测掉落一层或者角度超最大
+        #TODO
+
+        #TODO
         if checkForSpaceDown() == True:
             if MUSIC == True:
                 pygame.mixer.music.stop()
@@ -171,14 +184,16 @@ def runGame():
         #TODO
 
         #更新各个元素
-        clouds = updateCloud(clouds, move)
-        crane = updateCrane(crane, move, state)
-        score = updateScore(score, move)
+        clouds = updateCloud(clouds, state)
+        crane = updateCrane(crane, state)
+        floors = updateFloor(floors, crane, state)
+        score = updateScore(score, state)
         
         #绘图步骤 --------
         drawBackground()
         drawCloud(clouds)
         drawCrane(crane)
+        drawFloor(floors)
         drawScore(score)
 
         pygame.display.update()
@@ -193,22 +208,6 @@ def drawBackground():
     '''
     display_surf.fill(COLOR_BG)
 
-            
-def drawFloor(org_x, org_y, w, h, hook_x, hook_y, a):
-    floor_img = pygame.image.load("resource/floor/floor0.png")
-    floor_img = pygame.transform.scale(floor_img, (w, h))
-    floor_img = pygame.transform.rotate(floor_img, a)
-
-    img_x = (org_x-hook_x)*math.cos(math.radians(a)) + (org_y-hook_y)*math.sin(math.radians(a)) + hook_x
-    img_y = -(org_x-hook_x)*math.sin(math.radians(a)) + (org_y-hook_y)*math.cos(math.radians(a)) + hook_y
-    
-    if a >= 0:
-        pos_x = img_x
-        pos_y = img_y-w*math.sin(math.radians(a))
-    else:
-        pos_x = img_x + h*math.sin(math.radians(a))
-        pos_y = img_y
-    display_surf.blit(floor_img, (pos_x, pos_y))        
     
 def clearKeyEvent():
     ''' Clear existing button event
@@ -264,7 +263,7 @@ def initialCloud():
         clouds.append(cloud) 
     return clouds
     
-def updateCloud(clouds, move):
+def updateCloud(clouds, state):
     for i, cloud in enumerate(clouds):
         cloud_img, cloud_pos = cloud[0], cloud[1]
         cloud_pos[0] += np.random.randint(CLOUD_SPEED) #随机移动水平速度
@@ -272,7 +271,7 @@ def updateCloud(clouds, move):
             cloud_img = pygame.image.load("resource/cloud/cloud"+str(np.random.randint(8))+".png")
             cloud_img = pygame.transform.scale(cloud_img, (CLOUD_WIDTH, CLOUD_HEIGHT))
             cloud_pos = [-CLOUD_WIDTH, np.random.randint(0, high=WINDOW_HEIGHT-CLOUD_HEIGHT)]
-        if move == True:
+        if state == STATE["LVUP"]:
             cloud_pos[1] += BASIC_SPEED # 固定移动垂直速度，当视觉整体上移的时候
             if cloud_pos[1] > WINDOW_HEIGHT:
                 cloud_img = pygame.image.load("resource/cloud/cloud"+str(np.random.randint(8))+".png")
@@ -303,7 +302,7 @@ def initialCrane():
     return crane
 
 hook_move_r = True    
-def updateCrane(crane, move, state):
+def updateCrane(crane, state):
     racks, base_y, hook_x = crane[0], crane[1], crane[2]
     #架子
     if racks[0] >= RACK_Y and racks[0] < RACK_Y+BASIC_SPEED: #第一节已经要挪出去了，需要在前面新增加一节
@@ -311,26 +310,26 @@ def updateCrane(crane, move, state):
         racks.insert(0, rack_y_new)
     if racks[-1] >= WINDOW_HEIGHT:
         racks.pop(-1)
-    if move == True:
+    if state == STATE["LVUP"]:
         for i, rack_y in enumerate(racks):
             rack_y += BASIC_SPEED
             racks[i] = rack_y
     #底座
-    if move == True:
+    if state == STATE["LVUP"]:
         base_y += BASIC_SPEED
     #钩子
     global hook_move_r
-    #TODO: only in free state
-    if hook_move_r == True:
-        if hook_x < HOOK_X_R:
-            hook_x += HOOK_SPEED
+    if state == STATE["HANG"]:
+        if hook_move_r == True:
+            if hook_x < HOOK_X_R:
+                hook_x += HOOK_SPEED
+            else:
+                hook_move_r = False
         else:
-            hook_move_r = False
-    else:
-        if hook_x > HOOK_X_L:
-            hook_x -= HOOK_SPEED
-        else:
-            hook_move_r = True
+            if hook_x > HOOK_X_L:
+                hook_x -= HOOK_SPEED
+            else:
+                hook_move_r = True
     
     crane = [racks, base_y, hook_x]
     return crane
@@ -356,6 +355,79 @@ def drawCrane(crane):
     hook_img = pygame.transform.scale(hook_img, (HOOK_WIDTH, HOOK_HEIGHT))      
     display_surf.blit(hook_img, (hook_x, HOOK_Y))
     
+def initialFloor():
+    ''' Initialize list of floors, including the random images and initial position
+    position has below information: topleft coordination, hook point coordination, rotate angle, 
+    with additional information as width and height, the rect can be fixed
+    '''
+    floors = []
+    for i in range(FLOOR_CNT + 1): #包括吊起的一个
+        floor_img = pygame.image.load("resource/floor/floor"+str(np.random.randint(16))+".png")
+        floor_img = pygame.transform.scale(floor_img, (FLOOR_WIDTH, FLOOR_HEIGHT))
+        pos_x, pos_y = FLOOR_X, FLOOR_Y-FLOOR_HEIGHT*i
+        floor_pos = [pos_x, pos_y, pos_x, pos_y, 0] #[左上横坐标，左上纵坐标，锚点横坐标，锚点纵坐标，逆时针旋转角度
+        floor = [floor_img, floor_pos]
+        floors.append(floor)
+    floor_hang_pos = [HOOK_X_L-(FLOOR_WIDTH-HOOK_WIDTH)//2, HOOK_Y, HOOK_X_L+HOOK_WIDTH//2, HOOK_Y, 0] #吊起来的一块的坐标更新一下
+    floors[-1][1] = floor_hang_pos
+    return floors
+
+def updateFloor(floors, crane, state):
+    if state == STATE["HANG"]:
+        hook_x = crane[2]
+        angle = 60 * (hook_x-(HOOK_X_L+HOOK_X_R)//2) // (HOOK_X_R-HOOK_X_L) #最多旋转+-30度
+        floor_hang_pos = [hook_x-(FLOOR_WIDTH-HOOK_WIDTH)//2, HOOK_Y, hook_x+HOOK_WIDTH//2, HOOK_Y, angle]
+        floors[-1][1] = floor_hang_pos
+    if state == STATE["DROP"]:
+        floor_hang_pos = floors[-1][1]
+        floor_hang_pos[1] += FLOOR_DROP_SPEED
+        floor_hang_pos[4] = 0
+        floors[-1][1] = floor_hang_pos
+    if state == STATE["LAND"]:
+        pass
+        #TODO: add hit detect, and rotate in current state
+    if state == STATE["LVUP"]:
+        floor_land_pos = floors[-1][1]
+        if FLOOR_X != floor_land_pos[0]: #让整个楼水平方向平移，让新的顶楼居中，那么每一帧移动的距离要算出来
+            pos_x_delta = (FLOOR_X-floor_land_pos[0]) * BASIC_SPEED // (FLOOR_LEVEL-floor_land_pos[1])
+            if FLOOR_LEVEL - floor_land_pos[1] <= BASIC_SPEED:
+                pos_x_delta = FLOOR_X-floor_land_pos[0]
+        for i, floor in enumerate(floors):
+            floor_pos = floor[1]
+            floor_pos[0] += pos_x_delta
+            floor_pos[1] += BASIC_SPEED
+            floor[1] = floor_pos
+            floors[i] = floor
+    if state == STATE["FAIL"]:
+        floor_drop_pos = floors[-1][1]
+        if floor_drop_pos[1] > FLOOR_LEVEL-FLOOR_HEIGHT: #说明没有碰到最上一层，而是继续往下掉，那么掉一层就报错，在主循环检测
+            floor_drop_pos[1] += FLOOR_DROP_SPEED
+            floor_drop_pos[4] = 0
+            floors[-1][1] = floor_drop_pos
+        elif floor_drop_pos[4] > FLOOR_ROTATE_MARGIN:
+            floor_drop_pos[4] += FLOOR_ROTATE_SPEED
+            floors[-1][1] = floor_drop_pos
+    return floors
+
+def drawFloor(floors):
+    pass            
+
+def drawRect(img, w, h, org_x, org_y, hook_x, hook_y, a):
+    #img = pygame.image.load("resource/floor/floor0.png")
+    img = pygame.transform.scale(img, (w, h))
+    img = pygame.transform.rotate(img, a)
+
+    img_x = (org_x-hook_x)*math.cos(math.radians(a)) + (org_y-hook_y)*math.sin(math.radians(a)) + hook_x
+    img_y = -(org_x-hook_x)*math.sin(math.radians(a)) + (org_y-hook_y)*math.cos(math.radians(a)) + hook_y
+    
+    if a >= 0:
+        pos_x = img_x
+        pos_y = img_y-w*math.sin(math.radians(a))
+    else:
+        pos_x = img_x + h*math.sin(math.radians(a))
+        pos_y = img_y
+    display_surf.blit(img, (pos_x, pos_y))        
+
 def initialScore():    
     return 0
 
