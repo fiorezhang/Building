@@ -46,17 +46,21 @@ RACK_Y = LIFT_HEIGHT
 
 HOOK_WIDTH = 40
 HOOK_HEIGHT = 50
-HOOK_X_L = 300
-HOOK_X_R = 500
+HOOK_X_L = 280
+HOOK_X_R = 520
 HOOK_Y = 100
 HOOK_SPEED = BASIC_SPEED
 
 FLOOR_WIDTH = 100
 FLOOR_HEIGHT = 75
 FLOOR_CNT = 4
-FLOOR_LEVEL = WINDOW_HEIGHT - FLOOR_HEIGHT*FLOOR_CNT
+FLOOR_EDGE_HEIGHT = WINDOW_HEIGHT - FLOOR_HEIGHT*FLOOR_CNT
 FLOOR_X = (HOOK_X_L + HOOK_X_R)//2 - (FLOOR_WIDTH-HOOK_WIDTH)//2
 FLOOR_Y = WINDOW_HEIGHT-FLOOR_HEIGHT
+FLOOR_DROP_SPEED = BASIC_SPEED * 4
+FLOOR_ROTATE_MARGIN = 30
+FLOOR_ROTATE_MAX = 45
+FLOOR_ROTATE_SPEED = 1
 
 #====颜色
 BLACK           = (  0,   0,   0)
@@ -81,6 +85,7 @@ STATE = {
     "LAND":   2,
     "LVUP":   3,
     "FAIL":   4, 
+    "OVER":   5,
 }
 
 
@@ -98,7 +103,7 @@ def main():
     display_surf = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
     pygame.display.set_caption('Ladder')
 
-    #showStartScreen()
+    showStartScreen()
     while True:
         score = runGame()
         showGameOverScreen(score)
@@ -147,8 +152,6 @@ def showGameOverScreen(score):
     
 def runGame():
     #本地变量，各种标记，缓存
-    gameOver = False
-    move = True
     state = STATE["HANG"]
     
     #本地变量，初始化各个元素
@@ -168,20 +171,54 @@ def runGame():
     sound_main_04 = pygame.mixer.Sound("resource/sound/notification_msg_04.wav")
     sound_main_05 = pygame.mixer.Sound("resource/sound/notification_msg_05.wav")
     
-    while gameOver == False:
+    clearKeyEvent()
+    
+    while state != STATE["OVER"]:
         #检测退出事件
         checkForQuit()
 
         #TODO
         #状态机，hang检测按键，drop检测纵坐标，land检测刚好对齐，或者摇晃角度，lvup检测纵坐标，fail检测掉落一层或者角度超最大
-        #TODO
-
-        #TODO
-        if checkForSpaceDown() == True:
-            if MUSIC == True:
-                pygame.mixer.music.stop()
-            gameOver = True
-        #TODO
+        if state == STATE["HANG"]:
+            if checkForSpaceDown() == True:
+                state = STATE["DROP"]
+                sound_main_02.play()
+        elif state == STATE["DROP"]:
+            floor_drop_pos = floors[-1][1]
+            floor_edge_pos = floors[-2][1]
+            if floor_drop_pos[1] >= FLOOR_EDGE_HEIGHT-FLOOR_HEIGHT: 
+                if floor_drop_pos[0] > floor_edge_pos[0]-FLOOR_WIDTH and floor_drop_pos[0] < floor_edge_pos[0]+FLOOR_WIDTH: 
+                    floor_drop_pos[1] = FLOOR_EDGE_HEIGHT-FLOOR_HEIGHT
+                    floors[-1][1] = floor_drop_pos
+                    state = STATE["LAND"]
+                else:
+                    state = STATE["FAIL"]
+        elif state == STATE["LAND"]:
+            floor_land_pos = floors[-1][1]
+            floor_edge_pos = floors[-2][1]
+            if floor_land_pos[0] == floor_edge_pos[0]: #刚好对准！！
+                state = STATE["LVUP"]
+                sound_main_03.play()
+            elif floor_land_pos[4] >= FLOOR_ROTATE_MARGIN or floor_land_pos[4] <= -FLOOR_ROTATE_MARGIN: 
+                state = STATE["FAIL"]
+            elif floor_land_pos[4] == 0: #下落的floor回正了
+                state = STATE["LVUP"]
+                sound_main_01.play()
+        elif state == STATE["LVUP"]:
+            floor_land_pos = floors[-1][1]
+            if floor_land_pos[1] >= FLOOR_EDGE_HEIGHT: 
+                floor_drop_pos[1] = FLOOR_EDGE_HEIGHT
+                floors[-1][1] = floor_drop_pos
+                state = STATE["HANG"]
+                clearKeyEvent()
+        elif state == STATE["FAIL"]:
+            floor_land_pos = floors[-1][1]
+            if floor_land_pos[1] >= FLOOR_EDGE_HEIGHT: 
+                state = STATE["OVER"]
+                sound_main_04.play()
+            elif floor_land_pos[4] >= FLOOR_ROTATE_MAX or floor_land_pos[4] <= -FLOOR_ROTATE_MAX:
+                state = STATE["OVER"]
+                sound_main_04.play()
 
         #更新各个元素
         clouds = updateCloud(clouds, state)
@@ -319,7 +356,7 @@ def updateCrane(crane, state):
         base_y += BASIC_SPEED
     #钩子
     global hook_move_r
-    if state == STATE["HANG"]:
+    if state != STATE["OVER"]: 
         if hook_move_r == True:
             if hook_x < HOOK_X_R:
                 hook_x += HOOK_SPEED
@@ -361,22 +398,28 @@ def initialFloor():
     with additional information as width and height, the rect can be fixed
     '''
     floors = []
-    for i in range(FLOOR_CNT + 1): #包括吊起的一个
+    for i in range(FLOOR_CNT): 
         floor_img = pygame.image.load("resource/floor/floor"+str(np.random.randint(16))+".png")
         floor_img = pygame.transform.scale(floor_img, (FLOOR_WIDTH, FLOOR_HEIGHT))
         pos_x, pos_y = FLOOR_X, FLOOR_Y-FLOOR_HEIGHT*i
         floor_pos = [pos_x, pos_y, pos_x, pos_y, 0] #[左上横坐标，左上纵坐标，锚点横坐标，锚点纵坐标，逆时针旋转角度
         floor = [floor_img, floor_pos]
         floors.append(floor)
-    floor_hang_pos = [HOOK_X_L-(FLOOR_WIDTH-HOOK_WIDTH)//2, HOOK_Y, HOOK_X_L+HOOK_WIDTH//2, HOOK_Y, 0] #吊起来的一块的坐标更新一下
-    floors[-1][1] = floor_hang_pos
     return floors
 
 def updateFloor(floors, crane, state):
     if state == STATE["HANG"]:
         hook_x = crane[2]
-        angle = 60 * (hook_x-(HOOK_X_L+HOOK_X_R)//2) // (HOOK_X_R-HOOK_X_L) #最多旋转+-30度
-        floor_hang_pos = [hook_x-(FLOOR_WIDTH-HOOK_WIDTH)//2, HOOK_Y, hook_x+HOOK_WIDTH//2, HOOK_Y, angle]
+        floor_top_pos = floors[-1][1]
+        if floor_top_pos[1] > HOOK_Y+HOOK_HEIGHT: 
+            floor_hang_img = pygame.image.load("resource/floor/floor"+str(np.random.randint(16))+".png")
+            floor_hang_img = pygame.transform.scale(floor_hang_img, (FLOOR_WIDTH, FLOOR_HEIGHT))
+            angle = FLOOR_ROTATE_MARGIN * 2 * (hook_x-(HOOK_X_L+HOOK_X_R)//2) // (HOOK_X_R-HOOK_X_L) #最多旋转+-margin度
+            floor_hang_pos = [hook_x-(FLOOR_WIDTH-HOOK_WIDTH)//2, HOOK_Y+HOOK_HEIGHT, hook_x+HOOK_WIDTH//2, HOOK_Y+HOOK_HEIGHT, angle]
+            floor_hang = [floor_hang_img, floor_hang_pos]
+            floors.append(floor_hang)        
+        angle = FLOOR_ROTATE_MARGIN * 2 * (hook_x-(HOOK_X_L+HOOK_X_R)//2) // (HOOK_X_R-HOOK_X_L) #最多旋转+-margin度
+        floor_hang_pos = [hook_x-(FLOOR_WIDTH-HOOK_WIDTH)//2, HOOK_Y+HOOK_HEIGHT, hook_x+HOOK_WIDTH//2, HOOK_Y+HOOK_HEIGHT, angle]
         floors[-1][1] = floor_hang_pos
     if state == STATE["DROP"]:
         floor_hang_pos = floors[-1][1]
@@ -384,13 +427,30 @@ def updateFloor(floors, crane, state):
         floor_hang_pos[4] = 0
         floors[-1][1] = floor_hang_pos
     if state == STATE["LAND"]:
-        pass
-        #TODO: add hit detect, and rotate in current state
+        floor_land_pos = floors[-1][1]
+        floor_edge_pos = floors[-2][1]
+        angle_target = FLOOR_ROTATE_MARGIN * (floor_edge_pos[0]-floor_land_pos[0]) // (FLOOR_WIDTH//2)
+        angle = floor_land_pos[4]
+        if floor_land_pos[0] <= floor_edge_pos[0]:
+            hk_x, hk_y = floor_edge_pos[0], floor_edge_pos[1]
+            if angle < angle_target:
+                angle += FLOOR_ROTATE_SPEED
+            else:
+                angle = 0
+        elif floor_land_pos[0] > floor_edge_pos[0]:
+            hk_x, hk_y = floor_edge_pos[0]+FLOOR_WIDTH, floor_edge_pos[1]
+            if angle > angle_target:
+                angle -= FLOOR_ROTATE_SPEED
+            else:
+                angle = 0
+        floor_land_pos[2], floor_land_pos[3], floor_land_pos[4] = hk_x, hk_y, angle
+        floors[-1][1] = floor_land_pos
     if state == STATE["LVUP"]:
         floor_land_pos = floors[-1][1]
+        pos_x_delta = 0
         if FLOOR_X != floor_land_pos[0]: #让整个楼水平方向平移，让新的顶楼居中，那么每一帧移动的距离要算出来
-            pos_x_delta = (FLOOR_X-floor_land_pos[0]) * BASIC_SPEED // (FLOOR_LEVEL-floor_land_pos[1])
-            if FLOOR_LEVEL - floor_land_pos[1] <= BASIC_SPEED:
+            pos_x_delta = (FLOOR_X-floor_land_pos[0]) * BASIC_SPEED // (FLOOR_EDGE_HEIGHT-floor_land_pos[1])
+            if FLOOR_EDGE_HEIGHT - floor_land_pos[1] <= BASIC_SPEED:
                 pos_x_delta = FLOOR_X-floor_land_pos[0]
         for i, floor in enumerate(floors):
             floor_pos = floor[1]
@@ -398,27 +458,35 @@ def updateFloor(floors, crane, state):
             floor_pos[1] += BASIC_SPEED
             floor[1] = floor_pos
             floors[i] = floor
+        floor_bot_pos = floors[0][1]
+        if floor_bot_pos[1] >= WINDOW_HEIGHT: 
+            floors.pop(0)
     if state == STATE["FAIL"]:
         floor_drop_pos = floors[-1][1]
-        if floor_drop_pos[1] > FLOOR_LEVEL-FLOOR_HEIGHT: #说明没有碰到最上一层，而是继续往下掉，那么掉一层就报错，在主循环检测
+        if floor_drop_pos[4] > FLOOR_ROTATE_MARGIN:
+            floor_drop_pos[4] += FLOOR_ROTATE_SPEED
+            floors[-1][1] = floor_drop_pos
+        elif floor_drop_pos[4] < -FLOOR_ROTATE_MARGIN:
+            floor_drop_pos[4] -= FLOOR_ROTATE_SPEED
+            floors[-1][1] = floor_drop_pos
+        elif floor_drop_pos[1] >= FLOOR_EDGE_HEIGHT-FLOOR_HEIGHT: #说明没有碰到最上一层，而是继续往下掉，那么掉一层就报错，在主循环检测
             floor_drop_pos[1] += FLOOR_DROP_SPEED
             floor_drop_pos[4] = 0
-            floors[-1][1] = floor_drop_pos
-        elif floor_drop_pos[4] > FLOOR_ROTATE_MARGIN:
-            floor_drop_pos[4] += FLOOR_ROTATE_SPEED
             floors[-1][1] = floor_drop_pos
     return floors
 
 def drawFloor(floors):
-    pass            
+    for floor in floors:
+        floor_img, floor_pos = floor[0], floor[1]
+        drawRect(floor_img, FLOOR_WIDTH, FLOOR_HEIGHT, floor_pos[0], floor_pos[1], floor_pos[2], floor_pos[3], floor_pos[4])
 
-def drawRect(img, w, h, org_x, org_y, hook_x, hook_y, a):
+def drawRect(img, w, h, org_x, org_y, hk_x, hk_y, a):
     #img = pygame.image.load("resource/floor/floor0.png")
     img = pygame.transform.scale(img, (w, h))
     img = pygame.transform.rotate(img, a)
 
-    img_x = (org_x-hook_x)*math.cos(math.radians(a)) + (org_y-hook_y)*math.sin(math.radians(a)) + hook_x
-    img_y = -(org_x-hook_x)*math.sin(math.radians(a)) + (org_y-hook_y)*math.cos(math.radians(a)) + hook_y
+    img_x = (org_x-hk_x)*math.cos(math.radians(a)) + (org_y-hk_y)*math.sin(math.radians(a)) + hk_x
+    img_y = -(org_x-hk_x)*math.sin(math.radians(a)) + (org_y-hk_y)*math.cos(math.radians(a)) + hk_y
     
     if a >= 0:
         pos_x = img_x
@@ -431,9 +499,9 @@ def drawRect(img, w, h, org_x, org_y, hook_x, hook_y, a):
 def initialScore():    
     return 0
 
-def updateScore(score, move):
-    if move == True:
-        score += 1
+def updateScore(score, state):
+    if state == STATE["LVUP"]:
+        score += BASIC_SPEED
     return score
     
 def drawScore(score):
@@ -442,7 +510,7 @@ def drawScore(score):
     display_surf.blit(ruler_img, (RULER_X, RULER_Y))
     
     score_font = pygame.font.Font('freesansbold.ttf', 20)
-    textSurfaceObj = score_font.render(str(score)+"m", True, BLACK, WHITE)
+    textSurfaceObj = score_font.render(str(score)+" in", True, BLACK, WHITE)
     textRectObj = textSurfaceObj.get_rect()
     textRectObj.topleft = (RULER_X, RULER_Y+10)
     display_surf.blit(textSurfaceObj, textRectObj)
