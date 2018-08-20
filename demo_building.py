@@ -62,6 +62,15 @@ FLOOR_ROTATE_MARGIN = 30
 FLOOR_ROTATE_MAX = 45
 FLOOR_ROTATE_SPEED = 1
 
+BOOM_WIDTH = 300
+BOOM_HEIGHT = 300
+BOOM_X = 200
+BOOM_Y = 300
+BOOM_CIRCLE = FPS
+
+SCORE_HEIGHT_BASE = 0
+SCORE_BIAS_BASE = 100
+
 #====颜色
 BLACK           = (  0,   0,   0)
 WHITE           = (255, 255, 255)
@@ -153,12 +162,14 @@ def showGameOverScreen(score):
 def runGame():
     #本地变量，各种标记，缓存
     state = STATE["HANG"]
+    over_cnt = 0
     
     #本地变量，初始化各个元素
     clouds = initialCloud()
     crane = initialCrane()
     floors = initialFloor()
     score = initialScore()    
+    boom = initialBoom()
     
     #MUSIC
     if MUSIC == True:
@@ -173,7 +184,7 @@ def runGame():
     
     clearKeyEvent()
     
-    while state != STATE["OVER"]:
+    while True:
         #检测退出事件
         checkForQuit()
 
@@ -197,8 +208,11 @@ def runGame():
             floor_land_pos = floors[-1][1]
             floor_edge_pos = floors[-2][1]
             if floor_land_pos[0] == floor_edge_pos[0]: #刚好对准！！
-                state = STATE["LVUP"]
+                #state = STATE["LVUP"]
                 sound_main_03.play()
+            if score[1] < 0:
+                state = STATE["OVER"]
+                sound_main_04.play()
             elif floor_land_pos[4] >= FLOOR_ROTATE_MARGIN or floor_land_pos[4] <= -FLOOR_ROTATE_MARGIN: 
                 state = STATE["FAIL"]
             elif floor_land_pos[4] == 0: #下落的floor回正了
@@ -213,17 +227,23 @@ def runGame():
                 clearKeyEvent()
         elif state == STATE["FAIL"]:
             floor_land_pos = floors[-1][1]
-            if floor_land_pos[1] >= FLOOR_EDGE_HEIGHT: 
+            if floor_land_pos[4] >= FLOOR_ROTATE_MAX or floor_land_pos[4] <= -FLOOR_ROTATE_MAX:
                 state = STATE["OVER"]
                 sound_main_04.play()
-            elif floor_land_pos[4] >= FLOOR_ROTATE_MAX or floor_land_pos[4] <= -FLOOR_ROTATE_MAX:
+            elif floor_land_pos[1] >= FLOOR_EDGE_HEIGHT: 
                 state = STATE["OVER"]
                 sound_main_04.play()
+        elif state == STATE["OVER"]:
+            over_cnt += 1
+            if over_cnt >= BOOM_CIRCLE:
+                break
+            
 
         #更新各个元素
         clouds = updateCloud(clouds, state)
         crane = updateCrane(crane, state)
         floors = updateFloor(floors, crane, state)
+        boom = updateBoom(boom, floors, state)
         score = updateScore(score, state)
         
         #绘图步骤 --------
@@ -231,11 +251,12 @@ def runGame():
         drawCloud(clouds)
         drawCrane(crane)
         drawFloor(floors)
+        drawBoom(boom)
         drawScore(score)
 
         pygame.display.update()
         fps_lock.tick(FPS)
-    print("return: %d" % score)
+    print("return: %d" % score[0])
     if MUSIC == True:
         pygame.mixer.music.stop()
     return score              
@@ -427,31 +448,87 @@ def updateFloor(floors, crane, state):
         floor_hang_pos[4] = 0
         floors[-1][1] = floor_hang_pos
     if state == STATE["LAND"]:
-        floor_land_pos = floors[-1][1]
-        floor_edge_pos = floors[-2][1]
-        angle_target = FLOOR_ROTATE_MARGIN * (floor_edge_pos[0]-floor_land_pos[0]) // (FLOOR_WIDTH//2)
-        angle = floor_land_pos[4]
-        if floor_land_pos[0] <= floor_edge_pos[0]:
-            hk_x, hk_y = floor_edge_pos[0], floor_edge_pos[1]
-            if angle < angle_target:
-                angle += FLOOR_ROTATE_SPEED
-            else:
-                angle = 0
-        elif floor_land_pos[0] > floor_edge_pos[0]:
-            hk_x, hk_y = floor_edge_pos[0]+FLOOR_WIDTH, floor_edge_pos[1]
-            if angle > angle_target:
-                angle -= FLOOR_ROTATE_SPEED
-            else:
-                angle = 0
-        floor_land_pos[2], floor_land_pos[3], floor_land_pos[4] = hk_x, hk_y, angle
-        floors[-1][1] = floor_land_pos
+        if True: #看所有画出来的层的重心，代码不好理解就去看else部分，只判断最上面一层
+            floor_delta_num = 0 #这一段是找出和上一层偏移最大且上面所有层的重心在同侧的那一层
+            floor_delta_found = False
+            floor_deltas = []
+            for i, floor in enumerate(floors[:-1]):
+                floor_deltas.append(abs(floors[i][1][0] - floors[i+1][1][0]))
+            floor_deltas = sorted(floor_deltas, reverse=True)
+            floor_bias = 0
+            for floor_delta in floor_deltas:
+                if floor_delta_found == True:
+                    break
+                for i, _ in enumerate(floors[:-1]):
+                    if floor_delta_found == True:
+                        break
+                    if abs(floors[i][1][0] - floors[i+1][1][0]) == floor_delta:
+                        floor_bias_all = 0
+                        floor_bias_cnt = 0
+                        for j, _ in enumerate(floors[i+1:]):
+                            floor_bias_all += floors[i][1][0] - floors[i+1+j][1][0]
+                            floor_bias_cnt += 1
+                        if (floors[i][1][0]-floors[i+1][1][0]) * floor_bias_all > 0: #正数说明偏移和重心同侧
+                            floor_delta_found = True
+                            floor_delta_num = i
+                            floor_bias = floor_bias_all // floor_bias_cnt
+                            break
+            if floor_delta_found == True:
+                angle_target = FLOOR_ROTATE_MARGIN * floor_bias // (FLOOR_WIDTH//2)
+                angle = floors[-1][1][4]
+                if floors[floor_delta_num][1][0] >= floors[floor_delta_num+1][1][0]:
+                    hk_x, hk_y = floors[floor_delta_num][1][0], floors[floor_delta_num][1][1]
+                    if angle < angle_target:
+                        angle += FLOOR_ROTATE_SPEED
+                    else:
+                        angle = 0
+                elif floors[floor_delta_num][1][0] < floors[floor_delta_num+1][1][0]:
+                    hk_x, hk_y = floors[floor_delta_num][1][0]+FLOOR_WIDTH, floors[floor_delta_num][1][1]
+                    if angle > angle_target:
+                        angle -= FLOOR_ROTATE_SPEED
+                    else:
+                        angle = 0      
+                for i, _ in enumerate(floors[floor_delta_num+1:]):
+                    floors[floor_delta_num+1+i][1][2], floors[floor_delta_num+1+i][1][3], floors[floor_delta_num+1+i][1][4] = hk_x, hk_y, angle
+        else:
+            floor_land_pos = floors[-1][1]
+            floor_edge_pos = floors[-2][1]
+            angle_target = FLOOR_ROTATE_MARGIN * (floor_edge_pos[0]-floor_land_pos[0]) // (FLOOR_WIDTH//2)
+            angle = floor_land_pos[4]
+            if floor_land_pos[0] <= floor_edge_pos[0]:
+                hk_x, hk_y = floor_edge_pos[0], floor_edge_pos[1]
+                if angle < angle_target:
+                    angle += FLOOR_ROTATE_SPEED
+                else:
+                    angle = 0
+            elif floor_land_pos[0] > floor_edge_pos[0]:
+                hk_x, hk_y = floor_edge_pos[0]+FLOOR_WIDTH, floor_edge_pos[1]
+                if angle > angle_target:
+                    angle -= FLOOR_ROTATE_SPEED
+                else:
+                    angle = 0
+            floor_land_pos[2], floor_land_pos[3], floor_land_pos[4] = hk_x, hk_y, angle
+            floors[-1][1] = floor_land_pos
     if state == STATE["LVUP"]:
-        floor_land_pos = floors[-1][1]
-        pos_x_delta = 0
-        if FLOOR_X != floor_land_pos[0]: #让整个楼水平方向平移，让新的顶楼居中，那么每一帧移动的距离要算出来
-            pos_x_delta = (FLOOR_X-floor_land_pos[0]) * BASIC_SPEED // (FLOOR_EDGE_HEIGHT-floor_land_pos[1])
-            if FLOOR_EDGE_HEIGHT - floor_land_pos[1] <= BASIC_SPEED:
-                pos_x_delta = FLOOR_X-floor_land_pos[0]
+        if True:
+            floor_bot_pos = floors[-FLOOR_CNT][1]
+            floor_land_pos = floors[-1][1]
+            pos_x_delta = 0
+            if FLOOR_X != floor_bot_pos[0]: #让整个楼水平方向平移，让新的底楼居中，那么每一帧移动的距离要算出来
+                pos_x_delta = (FLOOR_X-floor_bot_pos[0]) * BASIC_SPEED // (FLOOR_EDGE_HEIGHT-floor_land_pos[1])
+                if pos_x_delta < 0:
+                    pos_x_delta += 1
+                if FLOOR_EDGE_HEIGHT - floor_land_pos[1] <= BASIC_SPEED:
+                    pos_x_delta = FLOOR_X-floor_bot_pos[0]            
+        else:
+            floor_land_pos = floors[-1][1]
+            pos_x_delta = 0
+            if FLOOR_X != floor_land_pos[0]: #让整个楼水平方向平移，让新的顶楼居中，那么每一帧移动的距离要算出来
+                pos_x_delta = (FLOOR_X-floor_land_pos[0]) * BASIC_SPEED // (FLOOR_EDGE_HEIGHT-floor_land_pos[1])
+                if pos_x_delta < 0:
+                    pos_x_delta += 1
+                if FLOOR_EDGE_HEIGHT - floor_land_pos[1] <= BASIC_SPEED:
+                    pos_x_delta = FLOOR_X-floor_land_pos[0]
         for i, floor in enumerate(floors):
             floor_pos = floor[1]
             floor_pos[0] += pos_x_delta
@@ -463,16 +540,18 @@ def updateFloor(floors, crane, state):
             floors.pop(0)
     if state == STATE["FAIL"]:
         floor_drop_pos = floors[-1][1]
-        if floor_drop_pos[4] > FLOOR_ROTATE_MARGIN:
+        if floor_drop_pos[4] >= FLOOR_ROTATE_MARGIN:
             floor_drop_pos[4] += FLOOR_ROTATE_SPEED
             floors[-1][1] = floor_drop_pos
-        elif floor_drop_pos[4] < -FLOOR_ROTATE_MARGIN:
+        elif floor_drop_pos[4] <= -FLOOR_ROTATE_MARGIN:
             floor_drop_pos[4] -= FLOOR_ROTATE_SPEED
             floors[-1][1] = floor_drop_pos
         elif floor_drop_pos[1] >= FLOOR_EDGE_HEIGHT-FLOOR_HEIGHT: #说明没有碰到最上一层，而是继续往下掉，那么掉一层就报错，在主循环检测
             floor_drop_pos[1] += FLOOR_DROP_SPEED
             floor_drop_pos[4] = 0
             floors[-1][1] = floor_drop_pos
+    if state == STATE["OVER"]:
+        pass
     return floors
 
 def drawFloor(floors):
@@ -496,12 +575,32 @@ def drawRect(img, w, h, org_x, org_y, hk_x, hk_y, a):
         pos_y = img_y
     display_surf.blit(img, (pos_x, pos_y))        
 
+def initialBoom():
+    return None
+    
+def updateBoom(boom, floors, state):
+    if state == STATE["OVER"]:
+        boom = [floors[-1][1][0], floors[-1][1][1]]
+        boom[0] -= (BOOM_WIDTH-FLOOR_WIDTH)//2
+        boom[1] -= (BOOM_HEIGHT-FLOOR_HEIGHT)//2
+        return boom
+    else:
+        return None
+
+def drawBoom(boom):
+    if boom != None:
+        boom_img = pygame.image.load("resource/boom/boom.png")
+        boom_img = pygame.transform.scale(boom_img, (BOOM_WIDTH, BOOM_HEIGHT))
+        display_surf.blit(boom_img, (boom[0], boom[1]))
+
 def initialScore():    
-    return 0
+    return [SCORE_HEIGHT_BASE, SCORE_BIAS_BASE]
 
 def updateScore(score, state):
     if state == STATE["LVUP"]:
-        score += BASIC_SPEED
+        score[0] += BASIC_SPEED
+    if state == STATE["LAND"]:
+        score[1] -= 1 
     return score
     
 def drawScore(score):
@@ -510,9 +609,15 @@ def drawScore(score):
     display_surf.blit(ruler_img, (RULER_X, RULER_Y))
     
     score_font = pygame.font.Font('freesansbold.ttf', 20)
-    textSurfaceObj = score_font.render(str(score)+" in", True, BLACK, WHITE)
+    textSurfaceObj = score_font.render(str(score[0])+" in", True, BLACK, WHITE)
     textRectObj = textSurfaceObj.get_rect()
     textRectObj.topleft = (RULER_X, RULER_Y+10)
+    display_surf.blit(textSurfaceObj, textRectObj)
+
+    score_font = pygame.font.Font('freesansbold.ttf', 20)
+    textSurfaceObj = score_font.render(str(score[1])+" pt", True, BLACK, WHITE)
+    textRectObj = textSurfaceObj.get_rect()
+    textRectObj.topleft = (RULER_X, RULER_Y+30)
     display_surf.blit(textSurfaceObj, textRectObj)
     pass
     
@@ -556,7 +661,7 @@ def drawScoreOver(score):
     display_surf.blit(textSurfaceObj, textRectObj)
     
     score_font = pygame.font.Font('freesansbold.ttf', 80)
-    textSurfaceObj = score_font.render("SCORE: "+str(score), True, LIGHTBLUE, COLOR_BG_OVER)
+    textSurfaceObj = score_font.render("SCORE: "+str(score[0]), True, LIGHTBLUE, COLOR_BG_OVER)
     textRectObj = textSurfaceObj.get_rect()
     textRectObj.center = (WINDOW_WIDTH//2, WINDOW_HEIGHT*2//3)
     display_surf.blit(textSurfaceObj, textRectObj)
