@@ -20,7 +20,7 @@ BASIC_SPEED = WINDOW_WIDTH//400
 
 CLOUD_WIDTH = 100
 CLOUD_HEIGHT = 75
-CLOUD_SPEED = BASIC_SPEED
+CLOUD_SPEED = BASIC_SPEED * 2
 CLOUD_CNT = 5
 
 RULER_WIDTH = 120
@@ -57,7 +57,7 @@ FLOOR_CNT = 4
 FLOOR_EDGE_HEIGHT = WINDOW_HEIGHT - FLOOR_HEIGHT*FLOOR_CNT
 FLOOR_X = (HOOK_X_L + HOOK_X_R)//2 - (FLOOR_WIDTH-HOOK_WIDTH)//2
 FLOOR_Y = WINDOW_HEIGHT-FLOOR_HEIGHT
-FLOOR_DROP_SPEED = BASIC_SPEED * 4
+FLOOR_DROP_SPEED = BASIC_SPEED * 5
 FLOOR_ROTATE_MARGIN = 30
 FLOOR_ROTATE_MAX = 45
 FLOOR_ROTATE_SPEED = 1
@@ -86,7 +86,7 @@ RED             = (155,   0,   0)
 LIGHTRED        = (195,  40,  40)
 COLOR_BG_START  = ( 80, 100, 150)
 COLOR_BG_OVER   = BLACK
-COLOR_BG        = WHITE
+COLOR_BG        = (200, 255, 255)
 
 STATE = {
     "HANG":   0, 
@@ -436,7 +436,7 @@ def initialFloor():
     '''
     floors = []
     for i in range(FLOOR_CNT): 
-        floor_img = pygame.image.load("resource/floor/floor"+str(np.random.randint(16))+".png")
+        floor_img = pygame.image.load("resource/floor/floor"+str(np.random.randint(8))+".png")
         floor_img = pygame.transform.scale(floor_img, (FLOOR_WIDTH, FLOOR_HEIGHT))
         pos_x, pos_y = FLOOR_X, FLOOR_Y-FLOOR_HEIGHT*i
         floor_pos = [pos_x, pos_y, pos_x, pos_y, 0] #[左上横坐标，左上纵坐标，锚点横坐标，锚点纵坐标，逆时针旋转角度
@@ -464,7 +464,7 @@ def updateFloor(floors, crane, state):
         hook_x = crane[2]
         floor_top_pos = floors[-1][1]
         if floor_top_pos[1] > HOOK_Y+HOOK_HEIGHT: 
-            floor_hang_img = pygame.image.load("resource/floor/floor"+str(np.random.randint(16))+".png")
+            floor_hang_img = pygame.image.load("resource/floor/floor"+str(np.random.randint(8))+".png")
             floor_hang_img = pygame.transform.scale(floor_hang_img, (FLOOR_WIDTH, FLOOR_HEIGHT))
             angle = FLOOR_ROTATE_MARGIN * 2 * (hook_x-(HOOK_X_L+HOOK_X_R)//2) // (HOOK_X_R-HOOK_X_L) #最多旋转+-margin度
             floor_hang_pos = [hook_x-(FLOOR_WIDTH-HOOK_WIDTH)//2, HOOK_Y+HOOK_HEIGHT, hook_x+HOOK_WIDTH//2, HOOK_Y+HOOK_HEIGHT, angle]
