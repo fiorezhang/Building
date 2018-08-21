@@ -110,7 +110,7 @@ def main():
     pygame.mixer.init()
     fps_lock = pygame.time.Clock()
     display_surf = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
-    pygame.display.set_caption('Ladder')
+    pygame.display.set_caption('Building for Lucas')
 
     showStartScreen()
     while True:
@@ -160,6 +160,9 @@ def showGameOverScreen(score):
             break
     
 def runGame():
+    ''' Main routine
+    Initialization. State machine. Update. Drawing. 
+    '''
     #本地变量，各种标记，缓存
     state = STATE["HANG"]
     over_cnt = 0
@@ -190,11 +193,11 @@ def runGame():
 
         #TODO
         #状态机，hang检测按键，drop检测纵坐标，land检测刚好对齐，或者摇晃角度，lvup检测纵坐标，fail检测掉落一层或者角度超最大
-        if state == STATE["HANG"]:
+        if state == STATE["HANG"]: #检测按键
             if checkForSpaceDown() == True:
                 state = STATE["DROP"]
                 sound_main_02.play()
-        elif state == STATE["DROP"]:
+        elif state == STATE["DROP"]: #检测掉落快的纵坐标，如果落在最上面一块范围内，进入land状态，否则标记fail
             floor_drop_pos = floors[-1][1]
             floor_edge_pos = floors[-2][1]
             if floor_drop_pos[1] >= FLOOR_EDGE_HEIGHT-FLOOR_HEIGHT: 
@@ -204,13 +207,13 @@ def runGame():
                     state = STATE["LAND"]
                 else:
                     state = STATE["FAIL"]
-        elif state == STATE["LAND"]:
+        elif state == STATE["LAND"]: #正好对齐时提示，扣分超过预设值，结束；下落块的旋转角度超过上限，标记结束；其它情况认为正常，回正后进入lvup状态
             floor_land_pos = floors[-1][1]
             floor_edge_pos = floors[-2][1]
             if floor_land_pos[0] == floor_edge_pos[0]: #刚好对准！！
                 #state = STATE["LVUP"]
                 sound_main_03.play()
-            if score[1] < 0:
+            if score[1] <= 0:
                 state = STATE["OVER"]
                 sound_main_04.play()
             elif floor_land_pos[4] >= FLOOR_ROTATE_MARGIN or floor_land_pos[4] <= -FLOOR_ROTATE_MARGIN: 
@@ -218,14 +221,14 @@ def runGame():
             elif floor_land_pos[4] == 0: #下落的floor回正了
                 state = STATE["LVUP"]
                 sound_main_01.play()
-        elif state == STATE["LVUP"]:
+        elif state == STATE["LVUP"]: #检测最上层的纵坐标，到达指定位置时，回到hang状态
             floor_land_pos = floors[-1][1]
             if floor_land_pos[1] >= FLOOR_EDGE_HEIGHT: 
                 floor_drop_pos[1] = FLOOR_EDGE_HEIGHT
                 floors[-1][1] = floor_drop_pos
                 state = STATE["HANG"]
                 clearKeyEvent()
-        elif state == STATE["FAIL"]:
+        elif state == STATE["FAIL"]: #当已经旋转超出上限的块继续旋转超过最大值，或者掉落的块掉了超过一层，标记结束
             floor_land_pos = floors[-1][1]
             if floor_land_pos[4] >= FLOOR_ROTATE_MAX or floor_land_pos[4] <= -FLOOR_ROTATE_MAX:
                 state = STATE["OVER"]
@@ -233,7 +236,7 @@ def runGame():
             elif floor_land_pos[1] >= FLOOR_EDGE_HEIGHT: 
                 state = STATE["OVER"]
                 sound_main_04.play()
-        elif state == STATE["OVER"]:
+        elif state == STATE["OVER"]: #结束状态维持一小段时间，用来画boom贴图
             over_cnt += 1
             if over_cnt >= BOOM_CIRCLE:
                 break
@@ -312,6 +315,8 @@ def drawBackgroundStart():
     display_surf.fill(COLOR_BG_START)
     
 def initialCloud():
+    ''' Initialize clouds, choose texture randomly
+    '''
     clouds = []
     for i in range(CLOUD_CNT):
         cloud_img = pygame.image.load("resource/cloud/cloud"+str(np.random.randint(8))+".png")
@@ -322,6 +327,8 @@ def initialCloud():
     return clouds
     
 def updateCloud(clouds, state):
+    ''' Update clouds. choose different place when move out of screen. 
+    '''
     for i, cloud in enumerate(clouds):
         cloud_img, cloud_pos = cloud[0], cloud[1]
         cloud_pos[0] += np.random.randint(CLOUD_SPEED) #随机移动水平速度
@@ -347,6 +354,8 @@ def drawCloud(clouds):
         display_surf.blit(cloud_img, (cloud_pos[0], cloud_pos[1]))
     
 def initialCrane():
+    ''' Initialize parts for crane
+    '''
     #架子
     racks = []
     for i in range(RACK_CNT):
@@ -361,6 +370,11 @@ def initialCrane():
 
 hook_move_r = True    
 def updateCrane(crane, state):
+    ''' Update parts for crane. 
+    Add racks from the top, and remove from the bottom
+    Move base out of screen ater start several floors
+    Move hooks left and right. The coordination will pass to the hanging floor
+    '''
     racks, base_y, hook_x = crane[0], crane[1], crane[2]
     #架子
     if racks[0] >= RACK_Y and racks[0] < RACK_Y+BASIC_SPEED: #第一节已经要挪出去了，需要在前面新增加一节
@@ -393,6 +407,8 @@ def updateCrane(crane, state):
     return crane
     
 def drawCrane(crane):
+    ''' Draw parts of crane
+    '''
     racks, base_y, hook_x = crane[0], crane[1], crane[2]
     #画架子
     for rack_y in racks:
@@ -429,6 +445,21 @@ def initialFloor():
     return floors
 
 def updateFloor(floors, crane, state):
+    ''' Update floors, especially the top one
+    if state is HANG:
+        hanging floor follow the hook, and rotate a proper angle for fun
+    if state is DROP:
+        droping floor drop in DROP_SPEED
+    if state is LAND:
+        find biggest bias in each floor, and make sure the gravity center of floors above is in the same direction, then all the floors above should rotate around current floor corner
+        rotate the floors, to desired angle - bigger when the average gravity center bias bigger
+    if state is LVUP:
+        move all floors down, remove the bottom one when out of screen. 
+        move properly the floors horizontally, to align the bottom floor to the center
+    if state is FAIL:
+        continue rotate the top floor if angle already over the margin
+        continue drop the top floor if out of the next floor
+    '''
     if state == STATE["HANG"]:
         hook_x = crane[2]
         floor_top_pos = floors[-1][1]
@@ -481,12 +512,14 @@ def updateFloor(floors, crane, state):
                     if angle < angle_target:
                         angle += FLOOR_ROTATE_SPEED
                     else:
+                        print("Bias: %d" % floor_bias)
                         angle = 0
                 elif floors[floor_delta_num][1][0] < floors[floor_delta_num+1][1][0]:
                     hk_x, hk_y = floors[floor_delta_num][1][0]+FLOOR_WIDTH, floors[floor_delta_num][1][1]
                     if angle > angle_target:
                         angle -= FLOOR_ROTATE_SPEED
                     else:
+                        print("Bias: %d" % floor_bias)
                         angle = 0      
                 for i, _ in enumerate(floors[floor_delta_num+1:]):
                     floors[floor_delta_num+1+i][1][2], floors[floor_delta_num+1+i][1][3], floors[floor_delta_num+1+i][1][4] = hk_x, hk_y, angle
@@ -555,11 +588,15 @@ def updateFloor(floors, crane, state):
     return floors
 
 def drawFloor(floors):
+    ''' Draw floors
+    '''
     for floor in floors:
         floor_img, floor_pos = floor[0], floor[1]
         drawRect(floor_img, FLOOR_WIDTH, FLOOR_HEIGHT, floor_pos[0], floor_pos[1], floor_pos[2], floor_pos[3], floor_pos[4])
 
 def drawRect(img, w, h, org_x, org_y, hk_x, hk_y, a):
+    ''' Draw cell which rotate around a dedicated hook point
+    '''
     #img = pygame.image.load("resource/floor/floor0.png")
     img = pygame.transform.scale(img, (w, h))
     img = pygame.transform.rotate(img, a)
@@ -576,9 +613,13 @@ def drawRect(img, w, h, org_x, org_y, hk_x, hk_y, a):
     display_surf.blit(img, (pos_x, pos_y))        
 
 def initialBoom():
+    ''' Initialize boom. Nothing to do as it's only show when game over
+    '''
     return None
     
 def updateBoom(boom, floors, state):
+    ''' Return a coordination when game over, following the last position of the dropping/landing floor
+    '''
     if state == STATE["OVER"]:
         boom = [floors[-1][1][0], floors[-1][1][1]]
         boom[0] -= (BOOM_WIDTH-FLOOR_WIDTH)//2
@@ -588,15 +629,24 @@ def updateBoom(boom, floors, state):
         return None
 
 def drawBoom(boom):
+    ''' Draw boom
+    '''
     if boom != None:
         boom_img = pygame.image.load("resource/boom/boom.png")
         boom_img = pygame.transform.scale(boom_img, (BOOM_WIDTH, BOOM_HEIGHT))
         display_surf.blit(boom_img, (boom[0], boom[1]))
 
 def initialScore():    
+    ''' Initialize score
+    First score is the height. Second is the existing score. 
+    '''
     return [SCORE_HEIGHT_BASE, SCORE_BIAS_BASE]
 
 def updateScore(score, state):
+    ''' Update score
+    When LVUP, the height increase. When LAND - actually floor rotating, longer when bias bigger - the score decrease. 
+    So to get a better height, need reduce the bias each time
+    '''
     if state == STATE["LVUP"]:
         score[0] += BASIC_SPEED
     if state == STATE["LAND"]:
@@ -604,6 +654,8 @@ def updateScore(score, state):
     return score
     
 def drawScore(score):
+    ''' Draw score - [0] height [1] bias score
+    '''
     ruler_img = pygame.image.load("resource/ruler/ruler.png")
     ruler_img = pygame.transform.scale(ruler_img, (RULER_WIDTH, RULER_HEIGHT))
     display_surf.blit(ruler_img, (RULER_X, RULER_Y))
@@ -619,7 +671,6 @@ def drawScore(score):
     textRectObj = textSurfaceObj.get_rect()
     textRectObj.topleft = (RULER_X, RULER_Y+30)
     display_surf.blit(textSurfaceObj, textRectObj)
-    pass
     
 def drawImageStart():
     ''' Draw start screen image
@@ -675,5 +726,6 @@ def drawPromptOver():
     textRectObj.center = (WINDOW_WIDTH//2, WINDOW_HEIGHT - 40)
     display_surf.blit(textSurfaceObj, textRectObj)
         
+#入口
 if __name__ == '__main__':
     main()
